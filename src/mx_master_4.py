@@ -1,48 +1,73 @@
 import logging
-from enum import IntEnum
-from struct import pack, unpack
 
 import hid
 
 LOGITECH_VID = 0x046D
-
-
-class ReportID(IntEnum):
-    Short = 0x10  # 7 bytes
-    Long = 0x11  # 20 bytes
-
-
-class FunctionID(IntEnum):
-    IRoot = 0x0000
-    IFeatureSet = 0x0001
-    IFeatureInfo = 0x0002
-
-    Haptic = 0x0B4E
+HAPTIC_FEATURE_ID = 0x19B0  # MX Master 4 HAPTIC feature (confirmed via Solaar)
 
 
 class MXMaster4:
     device: hid.Device | None = None
 
-    def __init__(self, path: str, device_idx: int):
+    def __init__(self, path: str, device_idx: int, haptic_feat_idx: int):
         self.path = path
         self.device_idx = device_idx
+        self.haptic_feat_idx = haptic_feat_idx
+
+    @staticmethod
+    def _iroot_get_feature(dev, didx, feature_id):
+        """IRoot.getFeature(feature_id) → runtime index, or None if not found/no response."""
+        pkt = bytes([0x10, didx, 0x00, 0x00,  # func 0 = getFeature (NOT 0x10 which is getProtocol)
+                     (feature_id >> 8) & 0xFF, feature_id & 0xFF, 0x00])
+        dev.write(pkt)
+        # Drain up to 8 packets — unsolicited receiver packets may arrive first
+        for _ in range(8):
+            resp = dev.read(20, 2000)
+            if not resp:
+                break
+            if resp[1] != didx:
+                continue  # packet for a different device on this receiver
+            if resp[2] == 0x8F:  # HID++ error — feature not found or device offline
+                return None
+            if resp[2] == 0x00:  # IRoot response
+                idx = resp[4]
+                return idx if idx != 0 else None
+        return None
 
     @classmethod
     def find(cls):
+        """Scan every Logitech receiver on every USB port for the MX Master 4.
+
+        Identifies the device by the presence of feature 0x19B0 (HAPTIC).
+        Works regardless of which USB port the Bolt receiver is plugged into,
+        and regardless of how many other Logitech devices are paired.
+        """
         devices = hid.enumerate(LOGITECH_VID)
+        seen = set()
 
         for device in devices:
-            if device["usage_page"] == 65280:
-                path = device["path"].decode("utf-8")
-                logging.debug(f"Found: %s", device["product_string"])
-                logging.debug(f"\tPath: %s", path)
-                logging.debug(
-                    f"\tVID:PID: %.04X:%.04X",
-                    device["vendor_id"],
-                    device["product_id"],
-                )
-                logging.debug(f"\tInterface: %s", device.get("interface_number"))
-                return cls(path, device["interface_number"])
+            if device["usage_page"] != 65280:  # 0xFF00 = HID++ vendor page
+                continue
+            path_bytes = device["path"]
+            path = path_bytes.decode()
+            if path in seen:
+                continue
+            seen.add(path)
+
+            try:
+                dev = hid.Device(path=path_bytes)
+                for didx in range(1, 7):
+                    haptic_idx = cls._iroot_get_feature(dev, didx, HAPTIC_FEATURE_ID)
+                    if haptic_idx:
+                        logging.info(
+                            "MX Master 4 found: %s  device_idx=%d  haptic_feat=0x%02X",
+                            path, didx, haptic_idx,
+                        )
+                        dev.close()
+                        return cls(path, didx, haptic_idx)
+                dev.close()
+            except Exception as e:
+                logging.debug("Could not probe %s: %s", path, e)
 
         return None
 
@@ -51,77 +76,62 @@ class MXMaster4:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.device.close()
+        if self.device:
+            self.device.close()
 
     def write(self, data: bytes):
         if not self.device:
             raise Exception("Device not open")
         self.device.write(data)
 
-    def hidpp(
-        self,
-        feature_idx: FunctionID,
-        *args: int,
-    ) -> tuple[int, bytes]:
+    def play_haptic(self, waveform_id: int = 0):
+        """Play a haptic waveform on the MX Master 4.
 
-        if len(args) > 16:
-            raise Exception("Too many arguments")
+        waveform_id values (confirmed via packet sniffing):
+          0x00 = SHARP STATE CHANGE  (crisp click — default for notifications)
+          0x01 = DAMP STATE CHANGE   (softer bump)
+          0x05 = HAPPY ALERT         (pleasant pulse)
+          0x0A = FIREWORK            (long burst)
 
-        data = bytes(args)
-        if len(data) < 3:
-            data += bytes([0]) * (3 - len(data))
-
-        report_id = ReportID.Short if len(data) == 3 else ReportID.Long
-        logging.debug(
-            f"Sending: {report_id:02X} {self.device_idx:02X} {feature_idx:04X} {data.hex()}"
-        )
-        packet = pack(b">BBH3s", report_id, self.device_idx, feature_idx, data)
-        self.write(packet)
-        return self.read()
-
-    def read(self) -> tuple[int, bytes]:
-        response: bytes
-        r_f_idx: int
-
-        response = self.device.read(20)
-
-        # print(f"Response: {' '.join(f'{b:02X}' for b in response)}")
-        (r_report_id, r_device_idx, r_f_idx) = unpack(b">BBH", response[:4])
-        if r_device_idx != self.device_idx:
-            return self.read()
-
-        if r_report_id == ReportID.Short:
-            data = response[4:]
-            if len(data) != 7 - 4:
-                raise Exception("Wrong short report length")
-        elif r_report_id == ReportID.Long:
-            data = response[4:]
-            if len(data) != 20 - 4:
-                raise Exception("Wrong long report length")
-        else:
-            raise Exception("Unknown report ID")
-
-        return r_f_idx, response[4:]
+        Params format: [waveform_id, 0x01, ...] — byte[1]=0x01 is the play flag.
+        Sending play_flag=0 produces no vibration.
+        Raises on device error so the caller (watch.py) can exit and systemd restarts.
+        """
+        if not self.device:
+            raise Exception("Device not open")
+        # func 4 = playWaveformSymbol, sw_id=0xE
+        func_sw = (4 << 4) | 0xE  # 0x4E
+        data = bytes([waveform_id, 0x01] + [0] * 14)  # waveform_id + play_flag + padding
+        pkt = bytes([0x11, self.device_idx, self.haptic_feat_idx, func_sw]) + data
+        self.write(pkt)
+        # Read back, skipping unsolicited packets from other devices
+        for _ in range(8):
+            resp = self.device.read(20, 1000)
+            if not resp:
+                raise Exception("No response from device (timeout)")
+            if resp[1] != self.device_idx:
+                continue
+            if resp[2] == 0x8F:
+                raise Exception(f"Device returned error: {bytes(resp[:7]).hex()}")
+            break  # success echo
 
 
 def demo():
+    """Try all 15 waveforms so you can find the one you like best."""
     from time import sleep
+    import sys
 
     logging.basicConfig(level=logging.DEBUG)
 
-    mx_master_4 = MXMaster4.find()
-
-    if not mx_master_4:
+    mx = MXMaster4.find()
+    if not mx:
         logging.error("MX Master 4 not found!")
-        exit(1)
+        sys.exit(1)
 
-    with mx_master_4 as dev:
+    with mx as dev:
         for i in range(15):
-            logging.info("Haptic %d", i)
-            dev.hidpp(
-                FunctionID.Haptic,
-                i,
-            )
+            logging.info("Waveform %d", i)
+            dev.play_haptic(i)
             sleep(3)
 
 
