@@ -46,49 +46,53 @@ def dbus_thread(device):
         "interface='org.gtk.Notifications',member='AddNotification'",
         "interface='org.freedesktop.portal.Notification',member='AddNotification'",
     ]
-    process = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
-    )
-    for line in process.stdout:
-        line = line.strip()
-        if "method call" in line and (
-            "member=Notify" in line or "member=AddNotification" in line
-        ):
-            trigger_haptic(device, "dbus")
+    while True:
+        try:
+            process = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
+            )
+            for line in process.stdout:
+                line = line.strip()
+                if "method call" in line and (
+                    "member=Notify" in line or "member=AddNotification" in line
+                ):
+                    trigger_haptic(device, "dbus")
+            process.wait()
+            logging.warning("dbus-monitor exited (code %d) — restarting in 3s", process.returncode)
+        except Exception as e:
+            logging.warning("dbus_thread error: %s — restarting in 3s", e)
+        time.sleep(3)
 
 
 # ── Layer 2: X11 window monitor ───────────────────────────────────────────────
 def x11_thread(device):
     """Catches: Chrome/Electron notification popups on XWayland.
     These are X11 windows with _NET_WM_WINDOW_TYPE_NOTIFICATION."""
-    try:
-        dpy = xdisplay.Display(os.environ.get("DISPLAY", ":0"))
-    except Exception as e:
-        logging.warning("X11 monitor unavailable: %s", e)
-        return
-
-    root = dpy.screen().root
-    root.change_attributes(event_mask=X.SubstructureNotifyMask)
-    dpy.sync()
-
-    NET_WM_WINDOW_TYPE = dpy.intern_atom("_NET_WM_WINDOW_TYPE")
-    NET_WM_WINDOW_TYPE_NOTIFICATION = dpy.intern_atom("_NET_WM_WINDOW_TYPE_NOTIFICATION")
-
-    logging.info("X11 monitor active — Chrome popup notifications will be caught.")
-
     while True:
         try:
-            ev = dpy.next_event()
-            if ev.type == X.CreateNotify:
-                win = ev.window
-                try:
-                    prop = win.get_full_property(NET_WM_WINDOW_TYPE, X.AnyPropertyType)
-                    if prop and NET_WM_WINDOW_TYPE_NOTIFICATION in prop.value:
-                        trigger_haptic(device, "x11:notification-window")
-                except Exception:
-                    pass
-        except Exception:
-            pass
+            dpy = xdisplay.Display(os.environ.get("DISPLAY", ":0"))
+            root = dpy.screen().root
+            root.change_attributes(event_mask=X.SubstructureNotifyMask)
+            dpy.sync()
+
+            NET_WM_WINDOW_TYPE = dpy.intern_atom("_NET_WM_WINDOW_TYPE")
+            NET_WM_WINDOW_TYPE_NOTIFICATION = dpy.intern_atom("_NET_WM_WINDOW_TYPE_NOTIFICATION")
+
+            logging.info("X11 monitor active — Chrome popup notifications will be caught.")
+
+            while True:
+                ev = dpy.next_event()
+                if ev.type == X.CreateNotify:
+                    win = ev.window
+                    try:
+                        prop = win.get_full_property(NET_WM_WINDOW_TYPE, X.AnyPropertyType)
+                        if prop and NET_WM_WINDOW_TYPE_NOTIFICATION in prop.value:
+                            trigger_haptic(device, "x11:notification-window")
+                    except Exception:
+                        pass
+        except Exception as e:
+            logging.warning("X11 monitor error: %s — restarting in 5s", e)
+            time.sleep(5)
 
 
 # ── Layer 3: AT-SPI ───────────────────────────────────────────────────────────
@@ -156,9 +160,15 @@ def atspi_thread(device):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-    device = MXMaster4.find()
+    device = None
+    for attempt in range(1, 13):  # retry up to ~60s at boot
+        device = MXMaster4.find()
+        if device:
+            break
+        logging.warning("MX Master 4 not found (attempt %d/12) — retrying in 5s", attempt)
+        time.sleep(5)
     if not device:
-        logging.error("MX Master 4 not found!")
+        logging.error("MX Master 4 not found after retries — giving up")
         exit(1)
 
     with device as dev:
