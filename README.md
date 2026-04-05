@@ -1,6 +1,6 @@
-# MX Master 4 Haptic Setup for Linux (Fedora / GNOME)
+# MX Master 4 Haptic Setup for Linux (Fedora / Ubuntu / GNOME)
 
-Full setup guide for **Logitech MX Master 4** on Fedora with GNOME and Wayland.
+Full setup guide for **Logitech MX Master 4** on Linux with GNOME and Wayland.
 
 Tested on: **Fedora 43, GNOME Shell 49.5, Wayland + XWayland, Logi Bolt receiver**
 
@@ -37,7 +37,8 @@ mx4notifications/
 │           ├── mx4notifications.service    # Haptic notification service
 │           └── mx4-overview.service        # Haptic panel service
 ├── scripts/
-│   ├── install.sh            # One-shot install script
+│   ├── install.sh            # One-shot install script (Fedora)
+│   ├── install-ubuntu.sh     # One-shot install script (Ubuntu)
 │   └── logid-release-keys.py # Releases stuck modifier keys
 └── README.md
 ```
@@ -46,12 +47,22 @@ mx4notifications/
 
 ## Quick install
 
+**Fedora:**
 ```bash
 git clone https://github.com/tayyabtahir143/mx4notifications.git
 cd mx4notifications
 git checkout mx4haptic
 chmod +x scripts/install.sh
 ./scripts/install.sh
+```
+
+**Ubuntu (22.04 / 24.04):**
+```bash
+git clone https://github.com/tayyabtahir143/mx4notifications.git
+cd mx4notifications
+git checkout mx4haptic
+chmod +x scripts/install-ubuntu.sh
+./scripts/install-ubuntu.sh
 ```
 
 Then **log out and back in**, reconnect the mouse, and you're done.
