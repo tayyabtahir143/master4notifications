@@ -1,0 +1,8 @@
+[Unit]
+Description=Re-initialize logid after devices have woken up
+After=logid.service
+Requires=logid.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'sleep 15 && systemctl restart logid'

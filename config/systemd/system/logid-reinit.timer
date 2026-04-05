@@ -1,0 +1,9 @@
+[Unit]
+Description=Restart logid 20s after boot to catch sleeping Bolt devices
+
+[Timer]
+OnBootSec=20s
+Unit=logid-reinit.service
+
+[Install]
+WantedBy=timers.target
