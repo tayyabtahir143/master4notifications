@@ -1,0 +1,2 @@
+# Grant 'input' group read/write access to all Logitech hidraw devices
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", MODE="0660", GROUP="input"

@@ -1,0 +1,11 @@
+[Unit]
+Description=MX Master 4 Haptic Panel — Toggle GNOME Overview
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/mx4notifications/src/mx4_overview.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
