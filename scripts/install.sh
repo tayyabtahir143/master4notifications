@@ -47,10 +47,8 @@ sudo systemctl enable --now logid-reinit.timer
 echo "[7/8] Installing user systemd services..."
 mkdir -p ~/.config/systemd/user
 cp "$REPO_DIR/config/systemd/user/mx4notifications.service" ~/.config/systemd/user/
-cp "$REPO_DIR/config/systemd/user/mx4-overview.service" ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now mx4notifications.service
-systemctl --user enable --now mx4-overview.service
 
 # 8. Fix GNOME Super key overlay
 echo "[8/8] Fixing GNOME overlay-key..."

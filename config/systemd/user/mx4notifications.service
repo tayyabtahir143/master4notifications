@@ -12,6 +12,8 @@ ExecStart=python3 %h/mx4notifications/src/watch.py
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONPATH=%h/mx4notifications/src
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
 
 [Install]
 WantedBy=graphical-session.target

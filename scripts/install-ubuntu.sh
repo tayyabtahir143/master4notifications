@@ -75,10 +75,8 @@ sudo systemctl enable --now logid-reinit.timer
 echo "[8/9] Installing user systemd services..."
 mkdir -p ~/.config/systemd/user
 cp "$REPO_DIR/config/systemd/user/mx4notifications.service" ~/.config/systemd/user/
-cp "$REPO_DIR/config/systemd/user/mx4-overview.service" ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now mx4notifications.service
-systemctl --user enable --now mx4-overview.service
 
 # 9. Fix GNOME settings
 echo "[9/9] Fixing GNOME settings..."
