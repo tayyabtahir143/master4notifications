@@ -9,8 +9,6 @@ Tested on: **Fedora 43, GNOME Shell 49.5, Wayland + XWayland, Logi Bolt receiver
 | Feature | Description |
 |---|---|
 | **Haptic on notifications** | Mouse vibrates every time you get a desktop notification |
-| **Haptic panel → Activities** | Press the oval haptic sense panel to open/close GNOME Activities overview |
-| **Keyboard Super key** | Physical Super/Windows key opens Activities normally (on key release) |
 | **Ctrl + Right arrow** | Top button on mouse switches to next workspace |
 
 ---
@@ -21,8 +19,7 @@ Tested on: **Fedora 43, GNOME Shell 49.5, Wayland + XWayland, Logi Bolt receiver
 mx4notifications/
 ├── src/
 │   ├── watch.py              # Notification haptic service (3-layer monitor)
-│   ├── mx_master_4.py        # HID++ driver for MX Master 4 haptic motor
-│   └── mx4_overview.py       # Haptic panel → GNOME Activities toggle
+│   └── mx_master_4.py        # HID++ driver for MX Master 4 haptic motor
 ├── config/
 │   ├── logid.cfg             # logiops mouse button config
 │   ├── udev/
@@ -34,8 +31,7 @@ mx4notifications/
 │       │   └── logid.service.d/
 │       │       └── release-keys.conf       # Releases stuck keys on logid stop
 │       └── user/
-│           ├── mx4notifications.service    # Haptic notification service
-│           └── mx4-overview.service        # Haptic panel service
+│           └── mx4notifications.service    # Haptic notification service
 ├── scripts/
 │   ├── install.sh            # One-shot install script (Fedora)
 │   ├── install-ubuntu.sh     # One-shot install script (Ubuntu)
@@ -138,12 +134,7 @@ sudo cp config/logid.cfg /etc/logid.cfg
 
 | Button | Action |
 |---|---|
-| Haptic sense panel (oval, CID 0x01a0) | Sends `KEY_F20` → intercepted by mx4-overview service → toggles GNOME Activities |
 | Top button (CID 0xc4) | `Ctrl + Right` → next workspace |
-| Gesture button (CID 0xc3) | Sends `KEY_F20` → same as haptic panel (MX Master 3S only) |
-
-> **Note:** The CID `0x01a0` was confirmed on an MX Master 4 connected via Logi Bolt receiver.
-> If buttons don't work, see [Troubleshooting — Finding button CIDs](#finding-button-cids).
 
 ---
 
@@ -173,9 +164,9 @@ sudo systemctl enable --now logid-reinit.timer
 
 ---
 
-### Step 7 — Install user services
+### Step 7 — Install user service
 
-#### 7a. Haptic notification service (`mx4notifications`)
+#### Haptic notification service (`mx4notifications`)
 
 Monitors for desktop notifications and vibrates the mouse.
 
@@ -186,29 +177,9 @@ systemctl --user daemon-reload
 systemctl --user enable --now mx4notifications.service
 ```
 
-#### 7b. Haptic panel service (`mx4-overview`)
-
-Intercepts `KEY_F20` from the haptic panel before X11 sees it, and toggles GNOME Activities.
-
-```bash
-cp config/systemd/user/mx4-overview.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now mx4-overview.service
-```
-
 ---
 
-### Step 8 — Fix GNOME Super key behavior
-
-Ensures the physical keyboard Super key opens Activities **on key release** (not on press).
-
-```bash
-gsettings set org.gnome.mutter overlay-key 'Super_L'
-```
-
----
-
-### Step 9 — Enable AT-SPI accessibility (for Layer 3 notification detection)
+### Step 8 — Enable AT-SPI accessibility (for Layer 3 notification detection)
 
 ```bash
 gsettings set org.gnome.desktop.interface toolkit-accessibility true
@@ -216,35 +187,26 @@ gsettings set org.gnome.desktop.interface toolkit-accessibility true
 
 ---
 
-### Step 10 — Disable Solaar autostart (important!)
+### Step 9 — Disable Solaar autostart (important!)
 
 Solaar conflicts with logid — both try to control the mouse simultaneously, causing
 the gesture button to get stuck and keyboard/mouse to behave erratically.
 
 ```bash
-# Disable Solaar from starting on login
 sed -i 's/X-GNOME-Autostart-enabled=true/X-GNOME-Autostart-enabled=false/' \
     ~/.config/autostart/solaar.desktop
 ```
 
 Or open **GNOME Settings → Apps → Startup Applications** and disable Solaar.
 
-> You can still launch Solaar manually when needed — just don't let it run in the background.
-
 ---
 
-### Step 11 — Test everything
+### Step 10 — Test everything
 
 **Test notification haptic:**
 ```bash
 notify-send "Test" "You should feel a buzz on your mouse!"
 ```
-
-**Test haptic panel:**
-Press the oval haptic sense panel → GNOME Activities overview should open/close.
-
-**Test Super key:**
-Press and release the physical Super/Windows key → Activities should open (on release, not on press).
 
 **Test workspace switch:**
 Press the top mouse button → should switch to next workspace.
@@ -254,14 +216,12 @@ Press the top mouse button → should switch to next workspace.
 ## Verify services are running
 
 ```bash
-# Check all three services
+# Check services
 sudo systemctl status logid.service --no-pager
 systemctl --user status mx4notifications.service --no-pager
-systemctl --user status mx4-overview.service --no-pager
 
 # Live logs
 journalctl --user -u mx4notifications -f
-journalctl --user -u mx4-overview -f
 sudo journalctl -u logid -f
 ```
 
@@ -287,30 +247,6 @@ Any notification source
   MX Master 4 vibrates
 ```
 
-### Haptic panel → Activities (`mx4_overview.py`)
-
-```
-Haptic panel pressed
-        ↓
-  logid sends KEY_F20 via LogiOps Virtual Input (uinput device)
-        ↓
-  mx4-overview.service has grabbed the device exclusively
-  (KEY_F20 never reaches X11)
-        ↓
-  gdbus → org.gnome.Shell → OverviewActive property toggled
-        ↓
-  GNOME Activities overview opens/closes
-```
-
-### Why we can't just use Super key from logid
-
-GNOME's `overlay-key` (the mechanism that opens Activities from Super key) only responds
-to real hardware keyboard devices, not uinput virtual devices like logid creates.
-The `toggle-overview` keybinding does accept virtual devices, but it triggers on
-**key press** — making the physical keyboard Super key open Activities before you
-even finish pressing it. The D-Bus `OverviewActive` property approach bypasses
-this entirely.
-
 ---
 
 ## Troubleshooting
@@ -325,19 +261,9 @@ If it still doesn't work, move the mouse or click a button, then:
 sudo systemctl restart logid
 ```
 
-### Haptic panel not working
-
-Check if the mx4-overview service is running and has grabbed the device:
-
-```bash
-systemctl --user status mx4-overview.service
-```
-
-If logid was restarted, the service auto-restarts within 5 seconds to re-grab the new device.
-
 ### Mouse/keyboard behaving erratically after pressing gesture button
 
-This is caused by Solaar running alongside logid. Stop Solaar and disable it from autostart (Step 10 above).
+This is caused by Solaar running alongside logid. Stop Solaar and disable it from autostart (Step 9 above).
 
 If keys are stuck, restart logid — the `release-keys.conf` drop-in will automatically release stuck modifier keys:
 
@@ -360,32 +286,6 @@ If the mouse is not found, the service retries every 5 seconds. Check if your us
 ```bash
 groups $USER | grep input
 ```
-
----
-
-## Finding button CIDs
-
-If you get a new MX Master 4 and buttons don't work, verify the CIDs match.
-
-**Step 1:** Temporarily map each unknown button to a different key in `/etc/logid.cfg`:
-
-```
-buttons: (
-    { cid: 0xc3;   action = { type: "Keypress"; keys: ["KEY_F13"]; }; },
-    { cid: 0xc4;   action = { type: "Keypress"; keys: ["KEY_F14"]; }; },
-    { cid: 0x01a0; action = { type: "Keypress"; keys: ["KEY_F15"]; }; },
-    { cid: 0x00d7; action = { type: "Keypress"; keys: ["KEY_F16"]; }; }
-);
-```
-
-**Step 2:** Restart logid, then run:
-
-```bash
-xev -event keyboard | grep -A2 "KeyPress"
-```
-
-**Step 3:** Press each physical button and note which keycode fires.
-Map the CIDs back to the buttons and update `config/logid.cfg` accordingly.
 
 ---
 
