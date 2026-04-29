@@ -11,7 +11,7 @@ from gi.repository import Atspi, GLib
 from Xlib import X, display as xdisplay
 from Xlib.protocol import event as xevent
 
-from mx_master_4 import MXMaster4
+from mx_master_4 import MXMaster4, NOTIFICATION_WAVEFORM
 
 DEBOUNCE_SECS = 1.5
 _last_trigger = 0.0
@@ -30,7 +30,7 @@ def trigger_haptic(device, source=""):
         # not a physical button press — so the settings popup won't appear.
         with open("/tmp/mx4-notif-haptic", "w") as f:
             f.write(str(time.time()))
-        device.play_haptic(0)  # 0 = SHARP STATE CHANGE (crisp notification buzz)
+        device.play_haptic(NOTIFICATION_WAVEFORM)
         logging.info("✓ Haptic triggered! [%s]", source)
     except Exception as e:
         logging.error("Device error: %s — restarting to re-discover device", e)

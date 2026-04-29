@@ -2,7 +2,10 @@
 
 Full setup guide for **Logitech MX Master 4** on Linux with GNOME and Wayland.
 
-Tested on: **Fedora 43, GNOME Shell 49.5, Wayland + XWayland, Logi Bolt receiver**
+Tested on: **Fedora 44, GNOME Shell 50, Wayland + XWayland, Logi Bolt receiver**
+Also tested on: Fedora 43, GNOME Shell 49.5
+
+> **Upgrading from Fedora 43 → 44?** See the [Fedora 44 upgrade notes](#fedora-44--gnome-50-upgrade-notes) below.
 
 ## What this does
 
@@ -43,7 +46,16 @@ mx4notifications/
 
 ## Quick install
 
-**Fedora:**
+**Fedora 44 (GNOME 50):**
+```bash
+git clone https://github.com/tayyabtahir143/mx4notifications.git
+cd mx4notifications
+git checkout Fedora44Gnome50Fix
+chmod +x scripts/install.sh
+./scripts/install.sh
+```
+
+**Fedora 43 and earlier:**
 ```bash
 git clone https://github.com/tayyabtahir143/mx4notifications.git
 cd mx4notifications
@@ -242,10 +254,70 @@ Any notification source
    │  Layer 3: AT-SPI accessibility    │ ← Any accessible app with alert windows
    └────┬──────────────────────────────┘
         ↓  (1.5s debounce)
-  HID++ HAPTIC feature (0x19B0), waveform 0x00 (SHARP STATE CHANGE)
+  HID++ HAPTIC feature (0x19B0), waveform 0x05 (HAPPY_ALERT)
         ↓
   MX Master 4 vibrates
 ```
+
+---
+
+## Fedora 44 / GNOME 50 upgrade notes
+
+If you upgraded from Fedora 43 to Fedora 44 and now get stuck in a **login loop** (you enter your password and get sent back to the login screen), this service is likely the cause.
+
+### Why it happens
+
+GNOME 50 (shipped in Fedora 44) added a strict check: if `graphical-session.target` is already active when you log in, GNOME crashes and kicks you back to the login screen.
+
+The old version of this service had `Requires=graphical-session.target` and was installed under `default.target.wants/`. This caused the service to start at boot (before you even logged in), which activated `graphical-session.target` too early. GNOME then saw it already active and refused to start.
+
+### How to fix it (if you are stuck in the login loop)
+
+1. Press **Alt + Ctrl + F3** to open a terminal on the login screen.
+2. Log in with your username and password.
+3. Run these commands:
+
+```bash
+# Stop the stale session target
+systemctl --user stop graphical-session.target
+systemctl --user reset-failed
+
+# Remove the bad service symlink
+rm ~/.config/systemd/user/default.target.wants/mx4notifications.service
+
+# Re-enable the service correctly
+systemctl --user disable mx4notifications.service
+systemctl --user enable mx4notifications.service
+systemctl --user daemon-reload
+
+# Restart the login screen
+sudo systemctl restart gdm
+```
+
+4. Press **Ctrl + Alt + F1** to go back to the login screen. It will now work.
+
+### What changed in this branch
+
+| What | Old (Fedora 43) | New (Fedora 44) |
+|---|---|---|
+| Service dependency | `Requires=graphical-session.target` | `PartOf=graphical-session.target` |
+| Service start trigger | `default.target.wants/` (at boot) | `graphical-session.target.wants/` (after login) |
+| `DISPLAY` env var | Hardcoded `:0` | Inherited from GNOME session |
+| `XAUTHORITY` env var | Hardcoded `~/.Xauthority` | Inherited from GNOME session |
+| Haptic waveform | `0x00` (not supported on this device) | `0x05` HAPPY_ALERT (confirmed working) |
+
+The `PartOf=` change means: the service is part of the graphical session and will stop when you log out, but it will never force the session target to activate on its own. This is the correct behaviour.
+
+The `XAUTHORITY` fix matters because Fedora 44 + Mutter/Wayland stores the X auth file at a random path like `/run/user/1000/.mutter-Xwaylandauth.XXXXXX` which changes on every boot. The old hardcoded `~/.Xauthority` path no longer exists, which caused the X11 notification layer to fail silently.
+
+The waveform fix matters because waveforms `0x00` and `0x01` are defined in the HID++ spec but are **not supported** by the MX Master 4 hardware. The device silently ignores them. The supported waveforms (confirmed via Solaar `GetCapabilities`) are:
+
+| ID | Name | Feel |
+|---|---|---|
+| `0x02` | SHARP_COLLISION | Crisp tap |
+| `0x03` | DAMP_COLLISION | Softer tap |
+| `0x04` | SUBTLE_COLLISION | Gentle tap |
+| `0x05` | HAPPY_ALERT | Double-pulse (default) |
 
 ---
 
@@ -270,6 +342,12 @@ If keys are stuck, restart logid — the `release-keys.conf` drop-in will automa
 ```bash
 sudo systemctl restart logid
 ```
+
+### Login loop after upgrading to Fedora 44
+
+See the [Fedora 44 upgrade notes](#fedora-44--gnome-50-upgrade-notes) section above for the fix.
+
+---
 
 ### No haptic on notifications
 

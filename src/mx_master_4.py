@@ -5,6 +5,16 @@ import hid
 LOGITECH_VID = 0x046D
 HAPTIC_FEATURE_ID = 0x19B0  # MX Master 4 HAPTIC feature (confirmed via Solaar)
 
+# Waveforms supported on MX Master 4 (bitmask 0x0001003C confirmed via GetCapabilities).
+# 0x00/0x01 exist in the spec but are NOT supported by this device — sending them
+# causes the device to silently ignore the command.
+WAVEFORM_SHARP_COLLISION  = 0x02  # crisp tap — good for notifications
+WAVEFORM_DAMP_COLLISION   = 0x03  # softer tap
+WAVEFORM_SUBTLE_COLLISION = 0x04  # very gentle
+WAVEFORM_HAPPY_ALERT      = 0x05  # pleasant double-pulse — default for notifications
+
+NOTIFICATION_WAVEFORM = WAVEFORM_HAPPY_ALERT
+
 
 class MXMaster4:
     device: hid.Device | None = None
@@ -17,7 +27,7 @@ class MXMaster4:
     @staticmethod
     def _iroot_get_feature(dev, didx, feature_id):
         """IRoot.getFeature(feature_id) → runtime index, or None if not found/no response."""
-        pkt = bytes([0x10, didx, 0x00, 0x00,  # func 0 = getFeature (NOT 0x10 which is getProtocol)
+        pkt = bytes([0x10, didx, 0x00, 0x0E,  # IRoot (feat=0), func=0 GetFeature, SW_ID=0xE
                      (feature_id >> 8) & 0xFF, feature_id & 0xFF, 0x00])
         dev.write(pkt)
         # Drain up to 8 packets — unsolicited receiver packets may arrive first
@@ -29,7 +39,7 @@ class MXMaster4:
                 continue  # packet for a different device on this receiver
             if resp[2] == 0x8F:  # HID++ error — feature not found or device offline
                 return None
-            if resp[2] == 0x00:  # IRoot response
+            if resp[2] == 0x00 and resp[3] == 0x0E:  # IRoot GetFeature response
                 idx = resp[4]
                 return idx if idx != 0 else None
         return None
@@ -84,25 +94,26 @@ class MXMaster4:
             raise Exception("Device not open")
         self.device.write(data)
 
-    def play_haptic(self, waveform_id: int = 0):
+    def play_haptic(self, waveform_id: int = NOTIFICATION_WAVEFORM):
         """Play a haptic waveform on the MX Master 4.
 
-        waveform_id values (confirmed via packet sniffing):
-          0x00 = SHARP STATE CHANGE  (crisp click — default for notifications)
-          0x01 = DAMP STATE CHANGE   (softer bump)
-          0x05 = HAPPY ALERT         (pleasant pulse)
-          0x0A = FIREWORK            (long burst)
+        Supported waveform IDs (verified via Solaar GetCapabilities bitmask 0x0001003C):
+          0x02 = SHARP_COLLISION   (crisp tap)
+          0x03 = DAMP_COLLISION    (softer tap)
+          0x04 = SUBTLE_COLLISION  (gentle tap)
+          0x05 = HAPPY_ALERT       (double-pulse — default for notifications)
 
-        Params format: [waveform_id, 0x01, ...] — byte[1]=0x01 is the play flag.
-        Sending play_flag=0 produces no vibration.
+        Note: 0x00/0x01 exist in the HID++ spec but are NOT supported on MX Master 4.
+        Sending unsupported waveforms causes silent no-op — no vibration, no error.
+
         Raises on device error so the caller (watch.py) can exit and systemd restarts.
         """
         if not self.device:
             raise Exception("Device not open")
-        # func 4 = playWaveformSymbol, sw_id=0xE
+        # func 4 = PlayHapticWaveform (0x40 >> 4), SW_ID=0xE
         func_sw = (4 << 4) | 0xE  # 0x4E
-        data = bytes([waveform_id, 0x01] + [0] * 14)  # waveform_id + play_flag + padding
-        pkt = bytes([0x11, self.device_idx, self.haptic_feat_idx, func_sw]) + data
+        pkt = bytes([0x10, self.device_idx, self.haptic_feat_idx, func_sw,
+                     waveform_id, 0x00, 0x00])
         self.write(pkt)
         # Read back, skipping unsolicited packets from other devices
         for _ in range(8):
@@ -117,21 +128,28 @@ class MXMaster4:
 
 
 def demo():
-    """Try all 15 waveforms so you can find the one you like best."""
+    """Play each supported waveform so you can pick the one you prefer."""
     from time import sleep
     import sys
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
 
     mx = MXMaster4.find()
     if not mx:
         logging.error("MX Master 4 not found!")
         sys.exit(1)
 
+    supported = [
+        (WAVEFORM_SHARP_COLLISION,  "SHARP_COLLISION  (crisp tap)"),
+        (WAVEFORM_DAMP_COLLISION,   "DAMP_COLLISION   (softer tap)"),
+        (WAVEFORM_SUBTLE_COLLISION, "SUBTLE_COLLISION (gentle tap)"),
+        (WAVEFORM_HAPPY_ALERT,      "HAPPY_ALERT      (double-pulse)"),
+    ]
+
     with mx as dev:
-        for i in range(15):
-            logging.info("Waveform %d", i)
-            dev.play_haptic(i)
+        for wid, name in supported:
+            logging.info("Waveform 0x%02X: %s", wid, name)
+            dev.play_haptic(wid)
             sleep(3)
 
 
