@@ -31,6 +31,8 @@ def trigger_haptic(device, source=""):
         with open("/tmp/mx4-notif-haptic", "w") as f:
             f.write(str(time.time()))
         device.play_haptic(NOTIFICATION_WAVEFORM)
+        time.sleep(0.08)
+        device.play_haptic(NOTIFICATION_WAVEFORM)
         logging.info("✓ Haptic triggered! [%s]", source)
     except Exception as e:
         logging.error("Device error: %s — restarting to re-discover device", e)
