@@ -31,7 +31,7 @@ def trigger_haptic(device, source=""):
         with open("/tmp/mx4-notif-haptic", "w") as f:
             f.write(str(time.time()))
         device.play_haptic(NOTIFICATION_WAVEFORM)
-        time.sleep(0.08)
+        time.sleep(0.25)
         device.play_haptic(NOTIFICATION_WAVEFORM)
         logging.info("✓ Haptic triggered! [%s]", source)
     except Exception as e:
