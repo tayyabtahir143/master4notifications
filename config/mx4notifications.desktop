@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=MX4 Notifications
+Comment=Configure haptic feedback for Logitech MX Master 4
+Exec=/home/tayyabtahir/mx4notifications/scripts/launch-gui.sh
+Icon=input-mouse
+Terminal=false
+Type=Application
+Categories=Utility;Settings;HardwareSettings;
+Keywords=mouse;haptic;logitech;mx master;notifications;
+StartupNotify=true
