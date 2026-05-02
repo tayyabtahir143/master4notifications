@@ -34,9 +34,11 @@ def trigger_haptic(device, source=""):
         with open("/tmp/mx4-notif-haptic", "w") as f:
             f.write(str(time.time()))
         device.play_haptic(waveform)
-        time.sleep(0.08)
-        device.play_haptic(NOTIFICATION_WAVEFORM)
-        logging.info("✓ Haptic triggered! [%s]", source)
+        if cfg.get("double_tap", False):
+            time.sleep(0.08)
+            device.play_haptic(waveform)
+        logging.info("✓ Haptic triggered! waveform=0x%02X double=%s [%s]",
+                     waveform, cfg.get("double_tap", False), source)
     except Exception as e:
         logging.error("Device error: %s — restarting to re-discover device", e)
         os._exit(1)
