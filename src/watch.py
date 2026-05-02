@@ -12,17 +12,20 @@ from Xlib import X, display as xdisplay
 from Xlib.protocol import event as xevent
 
 from mx_master_4 import MXMaster4, NOTIFICATION_WAVEFORM
+from config import load as load_config
 
-DEBOUNCE_SECS = 1.5
 _last_trigger = 0.0
 _lock = threading.Lock()
 
 
 def trigger_haptic(device, source=""):
     global _last_trigger
+    cfg = load_config()
+    debounce = cfg.get("debounce_secs", 1.5)
+    waveform = cfg.get("waveform", NOTIFICATION_WAVEFORM)
     with _lock:
         now = time.monotonic()
-        if now - _last_trigger < DEBOUNCE_SECS:
+        if now - _last_trigger < debounce:
             return
         _last_trigger = now
     try:
@@ -30,10 +33,12 @@ def trigger_haptic(device, source=""):
         # not a physical button press — so the settings popup won't appear.
         with open("/tmp/mx4-notif-haptic", "w") as f:
             f.write(str(time.time()))
-        device.play_haptic(NOTIFICATION_WAVEFORM)
-        time.sleep(0.25)
-        device.play_haptic(NOTIFICATION_WAVEFORM)
-        logging.info("✓ Haptic triggered! [%s]", source)
+        device.play_haptic(waveform)
+        if cfg.get("double_tap", False):
+            time.sleep(0.08)
+            device.play_haptic(waveform)
+        logging.info("✓ Haptic triggered! waveform=0x%02X double=%s [%s]",
+                     waveform, cfg.get("double_tap", False), source)
     except Exception as e:
         logging.error("Device error: %s — restarting to re-discover device", e)
         os._exit(1)
@@ -174,23 +179,32 @@ def main():
         exit(1)
 
     with device as dev:
+        cfg = load_config()
+        layers = cfg.get("layers", {})
         logging.info("MX Master 4 connected!")
-        logging.info("Starting 3-layer notification monitor:")
-        logging.info("  Layer 1: D-Bus (system/GTK/portal apps)")
-        logging.info("  Layer 2: X11 window events (Chrome/Electron popups)")
-        logging.info("  Layer 3: AT-SPI accessibility events")
-        logging.info("")
+        logging.info("Starting notification monitor (waveform=0x%02X debounce=%.1fs):",
+                     cfg.get("waveform", NOTIFICATION_WAVEFORM),
+                     cfg.get("debounce_secs", 1.5))
 
-        for target, name in [
-            (dbus_thread, "D-Bus"),
-            (x11_thread, "X11"),
+        for target, name, key in [
+            (dbus_thread, "D-Bus", "dbus"),
+            (x11_thread,  "X11",  "x11"),
         ]:
-            t = threading.Thread(target=target, args=(dev,), name=name, daemon=True)
-            t.start()
+            if layers.get(key, True):
+                logging.info("  Layer %s: enabled", name)
+                t = threading.Thread(target=target, args=(dev,), name=name, daemon=True)
+                t.start()
+            else:
+                logging.info("  Layer %s: disabled (config)", name)
 
         # AT-SPI runs in main thread (needs GLib event loop)
         try:
-            atspi_thread(dev)
+            if layers.get("atspi", True):
+                logging.info("  Layer AT-SPI: enabled")
+                atspi_thread(dev)
+            else:
+                logging.info("  Layer AT-SPI: disabled (config)")
+                threading.Event().wait()   # park the main thread
         except KeyboardInterrupt:
             logging.info("\nStopping...")
 
