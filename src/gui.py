@@ -131,6 +131,17 @@ class MX4Window(Adw.ApplicationWindow):
             self._waveform_radios.append(radio)
             haptic_group.add(row)
 
+        double_row = Adw.ActionRow()
+        double_row.set_title("Double Tap")
+        double_row.set_subtitle("Play the waveform twice (two strong pulses with 80 ms gap)")
+        self._double_sw = Gtk.Switch()
+        self._double_sw.set_active(self.config.get("double_tap", False))
+        self._double_sw.set_valign(Gtk.Align.CENTER)
+        self._double_sw.connect("state-set", self._on_double_tap_toggled)
+        double_row.add_suffix(self._double_sw)
+        double_row.set_activatable_widget(self._double_sw)
+        haptic_group.add(double_row)
+
         test_row = Adw.ActionRow()
         test_row.set_title("Test Haptic")
         test_row.set_subtitle("If service is running, fires via notify-send; otherwise opens device directly")
@@ -271,6 +282,11 @@ class MX4Window(Adw.ApplicationWindow):
         if radio.get_active():
             self.config["waveform"] = radio._wid
             save_config(self.config)
+
+    def _on_double_tap_toggled(self, sw, state):
+        self.config["double_tap"] = state
+        save_config(self.config)
+        return False
 
     def _on_test_haptic(self, *_):
         svc_text = self._svc_label.get_text()

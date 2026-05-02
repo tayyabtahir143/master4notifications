@@ -7,6 +7,7 @@ _CONFIG_FILE = _CONFIG_DIR / "config.json"
 
 DEFAULTS = {
     "waveform": 0x02,       # WAVEFORM_SHARP_COLLISION
+    "double_tap": False,    # play waveform twice with 80ms gap
     "debounce_secs": 1.5,
     "layers": {
         "dbus": True,
