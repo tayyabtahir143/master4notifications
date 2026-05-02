@@ -1,5 +1,7 @@
 # MX Master 4 Haptic Setup for Linux (Fedora / Ubuntu / GNOME)
 
+![MX4 Notifications GUI](screenshots/gui.png)
+
 Full setup guide for **Logitech MX Master 4** on Linux with GNOME and Wayland.
 
 Tested on: **Fedora 44, GNOME Shell 50, Wayland + XWayland, Logi Bolt receiver**
