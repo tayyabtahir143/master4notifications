@@ -23,25 +23,26 @@ def trigger_haptic(device, source=""):
     cfg = load_config()
     debounce = cfg.get("debounce_secs", 1.5)
     waveform = cfg.get("waveform", NOTIFICATION_WAVEFORM)
+    double_tap = cfg.get("double_tap", False)
     with _lock:
         now = time.monotonic()
         if now - _last_trigger < debounce:
             return
         _last_trigger = now
-    try:
-        # Flag file tells mx-master4-menu.sh this haptic came from a notification,
-        # not a physical button press — so the settings popup won't appear.
-        with open("/tmp/mx4-notif-haptic", "w") as f:
-            f.write(str(time.time()))
-        device.play_haptic(waveform)
-        if cfg.get("double_tap", False):
-            time.sleep(0.08)
+        # Hold lock through the full haptic sequence so concurrent notifications
+        # can't interleave device writes and cut the double-tap short.
+        try:
+            with open("/tmp/mx4-notif-haptic", "w") as f:
+                f.write(str(time.time()))
             device.play_haptic(waveform)
-        logging.info("✓ Haptic triggered! waveform=0x%02X double=%s [%s]",
-                     waveform, cfg.get("double_tap", False), source)
-    except Exception as e:
-        logging.error("Device error: %s — restarting to re-discover device", e)
-        os._exit(1)
+            if double_tap:
+                time.sleep(0.08)
+                device.play_haptic(waveform)
+            logging.info("✓ Haptic triggered! waveform=0x%02X double=%s [%s]",
+                         waveform, double_tap, source)
+        except Exception as e:
+            logging.error("Device error: %s — restarting to re-discover device", e)
+            os._exit(1)
 
 
 # ── Layer 1: D-Bus ────────────────────────────────────────────────────────────
